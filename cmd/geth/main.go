@@ -321,17 +321,18 @@ func prepare(ctx *cli.Context) { // 메모리 캐시와 시스템 메트릭
 // geth is the main entry point into the system if no special subcommand is run.
 // It creates a default node based on the command line arguments and runs it in
 // blocking mode, waiting for it to be shut down.
+// 터미널에서 geth 명령어 입력 시 호출
 func geth(ctx *cli.Context) error {
-	if args := ctx.Args().Slice(); len(args) > 0 {
-		return fmt.Errorf("invalid command: %q", args[0])
+	if args := ctx.Args().Slice(); len(args) > 0 { // 인수 체크
+		return fmt.Errorf("invalid command: %q", args[0]) // 있으면 에러 생성 후, 반환
 	}
 
-	prepare(ctx)
-	stack, backend := makeFullNode(ctx)
-	defer stack.Close()
+	prepare(ctx)                        // 실행 준비(시스템 캐시와 매트릭 셋)
+	stack, backend := makeFullNode(ctx) // TODO 풀노드 생성 추가 파악 필요
+	defer stack.Close()                 // geth 함수 return시 stack close
 
-	startNode(ctx, stack, backend, false)
-	stack.Wait()
+	startNode(ctx, stack, backend, false) // 노드 시작
+	stack.Wait()                          // 노드 종료까지 대기
 	return nil
 }
 
@@ -339,52 +340,52 @@ func geth(ctx *cli.Context) error {
 // it unlocks any requested accounts, and starts the RPC/IPC interfaces and the
 // miner.
 func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isConsole bool) {
-	debug.Memsize.Add("node", stack)
+	debug.Memsize.Add("node", stack) // 디버그 메모리 사이즈
 
 	// Start up the node itself
-	utils.StartNode(ctx, stack, isConsole)
+	utils.StartNode(ctx, stack, isConsole) // 노드 시작(콘솔여부?)
 
 	// Unlock any account specifically requested
-	unlockAccounts(ctx, stack)
+	unlockAccounts(ctx, stack) // 특정 계정 잠금 해제(개인키 활성화..밑에 코드 있으니 자세한건 아래에..)
 
 	// Register wallet event handlers to open and auto-derive wallets
-	events := make(chan accounts.WalletEvent, 16)
-	stack.AccountManager().Subscribe(events)
+	events := make(chan accounts.WalletEvent, 16) // 이벤트 채널 생성
+	stack.AccountManager().Subscribe(events)      // TODO 이벤트 변화 관찰 같은건가?
 
 	// Create a client to interact with local geth node.
-	rpcClient, err := stack.Attach()
+	rpcClient, err := stack.Attach() // RPC클라이언트 생성
 	if err != nil {
 		utils.Fatalf("Failed to attach to self: %v", err)
 	}
 	ethClient := ethclient.NewClient(rpcClient)
 
-	go func() {
+	go func() { // go 루틴 시작
 		// Open any wallets already attached
-		for _, wallet := range stack.AccountManager().Wallets() {
-			if err := wallet.Open(""); err != nil {
+		for _, wallet := range stack.AccountManager().Wallets() { // 지갑 계속 체크
+			if err := wallet.Open(""); err != nil { // TODO 지갑을 연다는게 무슨 뜻?
 				log.Warn("Failed to open wallet", "url", wallet.URL(), "err", err)
 			}
 		}
 		// Listen for wallet event till termination
 		for event := range events {
 			switch event.Kind {
-			case accounts.WalletArrived:
-				if err := event.Wallet.Open(""); err != nil {
+			case accounts.WalletArrived: // 지갑 도착
+				if err := event.Wallet.Open(""); err != nil { // 지갑 열어
 					log.Warn("New wallet appeared, failed to open", "url", event.Wallet.URL(), "err", err)
 				}
-			case accounts.WalletOpened:
-				status, _ := event.Wallet.Status()
+			case accounts.WalletOpened: // 지갑 이미 열림
+				status, _ := event.Wallet.Status() // 지갑 상태 저장, _ 반환 에러 무시
 				log.Info("New wallet appeared", "url", event.Wallet.URL(), "status", status)
 
-				var derivationPaths []accounts.DerivationPath
-				if event.Wallet.URL().Scheme == "ledger" {
-					derivationPaths = append(derivationPaths, accounts.LegacyLedgerBaseDerivationPath)
+				var derivationPaths []accounts.DerivationPath // HD wallet 말하는 거(e.g., m/44'/60'/0'/0/0)
+				if event.Wallet.URL().Scheme == "ledger" {    // ledger에서 가져온 지갑?
+					derivationPaths = append(derivationPaths, accounts.LegacyLedgerBaseDerivationPath) // ledger derivation path는 좀 고유한 듯?
 				}
-				derivationPaths = append(derivationPaths, accounts.DefaultBaseDerivationPath)
+				derivationPaths = append(derivationPaths, accounts.DefaultBaseDerivationPath) // default path 붙이기
 
 				event.Wallet.SelfDerive(derivationPaths, ethClient)
 
-			case accounts.WalletDropped:
+			case accounts.WalletDropped: // 지갑 끊김
 				log.Info("Old wallet dropped", "url", event.Wallet.URL())
 				event.Wallet.Close()
 			}
