@@ -383,7 +383,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 				}
 				derivationPaths = append(derivationPaths, accounts.DefaultBaseDerivationPath) // default path 붙이기
 
-				event.Wallet.SelfDerive(derivationPaths, ethClient)
+				event.Wallet.SelfDerive(derivationPaths, ethClient) // derivation path 따라 키 생성
 
 			case accounts.WalletDropped: // 지갑 끊김
 				log.Info("Old wallet dropped", "url", event.Wallet.URL())
