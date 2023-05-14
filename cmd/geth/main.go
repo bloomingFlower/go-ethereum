@@ -53,7 +53,7 @@ const (
 
 var (
 	// flags that configure the node
-	nodeFlags = flags.Merge([]cli.Flag{
+	nodeFlags = flags.Merge([]cli.Flag{ // Node에 관한 Flag
 		utils.IdentityFlag,
 		utils.UnlockedAccountFlag,
 		utils.PasswordFileFlag,
@@ -140,7 +140,7 @@ var (
 		configFileFlag,
 	}, utils.NetworkFlags, utils.DatabasePathFlags)
 
-	rpcFlags = []cli.Flag{
+	rpcFlags = []cli.Flag{ // RPC에 대한 flag
 		utils.HTTPEnabledFlag,
 		utils.HTTPListenAddrFlag,
 		utils.HTTPPortFlag,
@@ -150,7 +150,7 @@ var (
 		utils.AuthVirtualHostsFlag,
 		utils.JWTSecretFlag,
 		utils.HTTPVirtualHostsFlag,
-		utils.GraphQLEnabledFlag,
+		utils.GraphQLEnabledFlag, // graphQL 쓰네
 		utils.GraphQLCORSDomainFlag,
 		utils.GraphQLVirtualHostsFlag,
 		utils.HTTPApiFlag,
@@ -170,7 +170,7 @@ var (
 		utils.AllowUnprotectedTxs,
 	}
 
-	metricsFlags = []cli.Flag{
+	metricsFlags = []cli.Flag{ // DB관련 매트릭
 		utils.MetricsEnabledFlag,
 		utils.MetricsEnabledExpensiveFlag,
 		utils.MetricsHTTPFlag,
@@ -236,13 +236,13 @@ func init() {
 		metricsFlags,
 	)
 
-	app.Before = func(ctx *cli.Context) error {
-		flags.MigrateGlobalFlags(ctx)
-		return debug.Setup(ctx)
+	app.Before = func(ctx *cli.Context) error { // command 실행 전
+		flags.MigrateGlobalFlags(ctx) // 전역 플래그
+		return debug.Setup(ctx)       // 디버깅 셋
 	}
-	app.After = func(ctx *cli.Context) error {
-		debug.Exit()
-		prompt.Stdin.Close() // Resets terminal mode.
+	app.After = func(ctx *cli.Context) error { // command 실행 후
+		debug.Exit()         // 디버깅 종료
+		prompt.Stdin.Close() // Resets terminal mode. 터미널 모드를 변경했으므로 다시 닫고 원래 상태
 		return nil
 	}
 }
@@ -256,9 +256,9 @@ func main() {
 
 // prepare manipulates memory cache allowance and setups metric system.
 // This function should be called before launching devp2p stack.
-func prepare(ctx *cli.Context) {
+func prepare(ctx *cli.Context) { // 메모리 캐시와 시스템 메트릭
 	// If we're running a known preset, log it for convenience.
-	switch {
+	switch { // 테스트넷
 	case ctx.IsSet(utils.RinkebyFlag.Name):
 		log.Info("Starting Geth on Rinkeby testnet...")
 
@@ -268,7 +268,7 @@ func prepare(ctx *cli.Context) {
 	case ctx.IsSet(utils.SepoliaFlag.Name):
 		log.Info("Starting Geth on Sepolia testnet...")
 
-	case ctx.IsSet(utils.DeveloperFlag.Name):
+	case ctx.IsSet(utils.DeveloperFlag.Name): // dev 모드는 뭐지? 로컬인가?
 		log.Info("Starting Geth in ephemeral dev mode...")
 		log.Warn(`You are running Geth in --dev mode. Please note the following:
 
@@ -287,9 +287,11 @@ func prepare(ctx *cli.Context) {
 `)
 
 	case !ctx.IsSet(utils.NetworkIdFlag.Name):
-		log.Info("Starting Geth on Ethereum mainnet...")
+		log.Info("Starting Geth on Ethereum mainnet...") // 아무 옵션 없으면 메인넷 고
 	}
 	// If we're a full node on mainnet without --cache specified, bump default cache allowance
+	// 싱크 모드가 라이트가 아님 즉 풀노드 모드
+	// 싱크 모드별 다루는 데이터 사이즈가 다르므로 캐시 크기 세팅 다르게... 최적화
 	if ctx.String(utils.SyncModeFlag.Name) != "light" && !ctx.IsSet(utils.CacheFlag.Name) && !ctx.IsSet(utils.NetworkIdFlag.Name) {
 		// Make sure we're not on any supported preconfigured testnet either
 		if !ctx.IsSet(utils.SepoliaFlag.Name) &&
@@ -298,19 +300,21 @@ func prepare(ctx *cli.Context) {
 			!ctx.IsSet(utils.DeveloperFlag.Name) {
 			// Nope, we're really on mainnet. Bump that cache up!
 			log.Info("Bumping default cache on mainnet", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 4096)
-			ctx.Set(utils.CacheFlag.Name, strconv.Itoa(4096))
+			ctx.Set(utils.CacheFlag.Name, strconv.Itoa(4096)) // 캐시 크기 4096 (byte인가?)
 		}
 	}
 	// If we're running a light client on any network, drop the cache to some meaningfully low amount
 	if ctx.String(utils.SyncModeFlag.Name) == "light" && !ctx.IsSet(utils.CacheFlag.Name) {
 		log.Info("Dropping default light client cache", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 128)
-		ctx.Set(utils.CacheFlag.Name, strconv.Itoa(128))
+		ctx.Set(utils.CacheFlag.Name, strconv.Itoa(128)) // 캐시크기 128
 	}
 
 	// Start metrics export if enabled
+	// 모니터링에 수집할 매트릭
 	utils.SetupMetrics(ctx)
 
 	// Start system runtime metrics collection
+	// 3초마다 메트릭 수집
 	go metrics.CollectProcessMetrics(3 * time.Second)
 }
 
