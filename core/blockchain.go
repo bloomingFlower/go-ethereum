@@ -126,7 +126,7 @@ const (
 
 // CacheConfig contains the configuration values for the trie database
 // that's resident in a blockchain.
-type CacheConfig struct {
+type CacheConfig struct { // 트라이 DB 캐시 설정
 	TrieCleanLimit      int           // Memory allowance (MB) to use for caching trie nodes in memory
 	TrieCleanJournal    string        // Disk journal for saving clean cache entries.
 	TrieCleanRejournal  time.Duration // Time interval to dump clean cache to disk periodically
@@ -230,11 +230,11 @@ type BlockChain struct {
 // available in the database. It initialises the default Ethereum Validator
 // and Processor.
 func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis, overrides *ChainOverrides, engine consensus.Engine, vmConfig vm.Config, shouldPreserve func(header *types.Header) bool, txLookupLimit *uint64) (*BlockChain, error) {
-	if cacheConfig == nil {
-		cacheConfig = defaultCacheConfig
+	if cacheConfig == nil { // cache 설정이 없으면
+		cacheConfig = defaultCacheConfig // 기본 설정
 	}
 	// Open trie database with provided config
-	triedb := trie.NewDatabaseWithConfig(db, &trie.Config{
+	triedb := trie.NewDatabaseWithConfig(db, &trie.Config{ // config 기반 triedb 선언
 		Cache:     cacheConfig.TrieCleanLimit,
 		Journal:   cacheConfig.TrieCleanJournal,
 		Preimages: cacheConfig.Preimages,
@@ -242,26 +242,26 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	// Setup the genesis block, commit the provided genesis specification
 	// to database if the genesis block is not present yet, or load the
 	// stored one from database.
-	chainConfig, genesisHash, genesisErr := SetupGenesisBlockWithOverride(db, triedb, genesis, overrides)
-	if _, ok := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !ok {
+	chainConfig, genesisHash, genesisErr := SetupGenesisBlockWithOverride(db, triedb, genesis, overrides) // 제네시스블록 세팅 .
+	if _, ok := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !ok {                        // 에러가 발생하여 nil이 아니고 ConfigCompatError도 아니면 함수 종료
 		return nil, genesisErr
 	}
 	log.Info("")
-	log.Info(strings.Repeat("-", 153))
+	log.Info(strings.Repeat("-", 153)) // 153개라
 	for _, line := range strings.Split(chainConfig.Description(), "\n") {
 		log.Info(line)
 	}
 	log.Info(strings.Repeat("-", 153))
 	log.Info("")
 
-	bc := &BlockChain{
+	bc := &BlockChain{ // 블록체인 객체 생성 및 초기화
 		chainConfig:   chainConfig,
 		cacheConfig:   cacheConfig,
 		db:            db,
 		triedb:        triedb,
 		triegc:        prque.New[int64, common.Hash](nil),
 		quit:          make(chan struct{}),
-		chainmu:       syncx.NewClosableMutex(),
+		chainmu:       syncx.NewClosableMutex(), // TODO 한 번 보자
 		bodyCache:     lru.NewCache[common.Hash, *types.Body](bodyCacheLimit),
 		bodyRLPCache:  lru.NewCache[common.Hash, rlp.RawValue](bodyCacheLimit),
 		receiptsCache: lru.NewCache[common.Hash, []*types.Receipt](receiptsCacheLimit),
@@ -279,11 +279,11 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	bc.processor = NewStateProcessor(chainConfig, bc, engine)
 
 	var err error
-	bc.hc, err = NewHeaderChain(db, chainConfig, engine, bc.insertStopped)
+	bc.hc, err = NewHeaderChain(db, chainConfig, engine, bc.insertStopped) // 헤더체인
 	if err != nil {
 		return nil, err
 	}
-	bc.genesisBlock = bc.GetBlockByNumber(0)
+	bc.genesisBlock = bc.GetBlockByNumber(0) // 제네시스블록
 	if bc.genesisBlock == nil {
 		return nil, ErrNoGenesis
 	}
@@ -296,7 +296,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	// If Geth is initialized with an external ancient store, re-initialize the
 	// missing chain indexes and chain flags. This procedure can survive crash
 	// and can be resumed in next restart since chain flags are updated in last step.
-	if bc.empty() {
+	if bc.empty() { // 노드는 비어있고 DB는 있는 경우
 		rawdb.InitDatabaseFromFreezer(bc.db)
 	}
 	// Load blockchain states from disk
@@ -304,27 +304,27 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		return nil, err
 	}
 	// Make sure the state associated with the block is available
-	head := bc.CurrentBlock()
-	if !bc.HasState(head.Root) {
+	head := bc.CurrentBlock()    // 현재 블록이 헤드
+	if !bc.HasState(head.Root) { // 헤드 블록의 상태 정보 유무 확인. 없으면..?
 		// Head state is missing, before the state recovery, find out the
 		// disk layer point of snapshot(if it's enabled). Make sure the
 		// rewound point is lower than disk layer.
-		var diskRoot common.Hash
-		if bc.cacheConfig.SnapshotLimit > 0 {
-			diskRoot = rawdb.ReadSnapshotRoot(bc.db)
+		var diskRoot common.Hash              //
+		if bc.cacheConfig.SnapshotLimit > 0 { // 스냅샷에 허용된 메모리 캐시 사이즈가 0보다 크면?
+			diskRoot = rawdb.ReadSnapshotRoot(bc.db) // 스냅샷에 상태가 포함된 블록의 루트 검색하여 읽음
 		}
-		if diskRoot != (common.Hash{}) {
+		if diskRoot != (common.Hash{}) { // 스냅샷 root가 있음. 헤드 상태가 없음. 복구 시작. diskRoot가 common.hash가 아니면?
 			log.Warn("Head state missing, repairing", "number", head.Number, "hash", head.Hash(), "snaproot", diskRoot)
-
+			// 헤드를 디스크 스냅샷 root를 넘어서는 위치로 지정. 스냅샷을 사용하여 상태를 복구
 			snapDisk, err := bc.setHeadBeyondRoot(head.Number.Uint64(), 0, diskRoot, true)
 			if err != nil {
 				return nil, err
 			}
 			// Chain rewound, persist old snapshot number to indicate recovery procedure
-			if snapDisk != 0 {
+			if snapDisk != 0 { // 스냅 디스크가 있으면 되감기. 스냅샷의 마지막 번호까지
 				rawdb.WriteSnapshotRecoveryNumber(bc.db, snapDisk)
 			}
-		} else {
+		} else { // 헤드 상태 없음. 복구 시도. 스냅샷은 없으므로 root 위치 지정 안함.
 			log.Warn("Head state missing, repairing", "number", head.Number, "hash", head.Hash())
 			if _, err := bc.setHeadBeyondRoot(head.Number.Uint64(), 0, common.Hash{}, true); err != nil {
 				return nil, err
@@ -332,31 +332,32 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		}
 	}
 	// Ensure that a previous crash in SetHead doesn't leave extra ancients
-	if frozen, err := bc.db.Ancients(); err == nil && frozen > 0 {
+	if frozen, err := bc.db.Ancients(); err == nil && frozen > 0 { // 디스크에 보관된 오래된 블록이 있는 경우,
 		var (
-			needRewind bool
-			low        uint64
+			needRewind bool   // 되감기 여부?
+			low        uint64 // 가장 낮은 블록 번호
 		)
 		// The head full block may be rolled back to a very low height due to
 		// blockchain repair. If the head full block is even lower than the ancient
 		// chain, truncate the ancient store.
-		fullBlock := bc.CurrentBlock()
+		fullBlock := bc.CurrentBlock() // 현재 블록
+		// 현재 블록이 있고, 제네시스 블록이 아니며, ancient 블록보다 낮으면?
 		if fullBlock != nil && fullBlock.Hash() != bc.genesisBlock.Hash() && fullBlock.Number.Uint64() < frozen-1 {
-			needRewind = true
-			low = fullBlock.Number.Uint64()
+			needRewind = true               // 되감기
+			low = fullBlock.Number.Uint64() // 현재 블록이 낮음
 		}
 		// In fast sync, it may happen that ancient data has been written to the
 		// ancient store, but the LastFastBlock has not been updated, truncate the
 		// extra data here.
-		snapBlock := bc.CurrentSnapBlock()
-		if snapBlock != nil && snapBlock.Number.Uint64() < frozen-1 {
-			needRewind = true
+		snapBlock := bc.CurrentSnapBlock()                            // 현재 스냅샷 블록
+		if snapBlock != nil && snapBlock.Number.Uint64() < frozen-1 { // 스냅샷 블록이 고대 블록보다 낮음
+			needRewind = true // 리와인드
 			if snapBlock.Number.Uint64() < low || low == 0 {
-				low = snapBlock.Number.Uint64()
+				low = snapBlock.Number.Uint64() // 스냅샷 블록 번호가 로우
 			}
 		}
-		if needRewind {
-			log.Error("Truncating ancient chain", "from", bc.CurrentHeader().Number.Uint64(), "to", low)
+		if needRewind { // 리와인드 필요?
+			log.Error("Truncating ancient chain", "from", bc.CurrentHeader().Number.Uint64(), "to", low) // 블록헤드를 로우로 하고 리완드 필요
 			if err := bc.SetHead(low); err != nil {
 				return nil, err
 			}
@@ -365,15 +366,15 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	// The first thing the node will do is reconstruct the verification data for
 	// the head block (ethash cache or clique voting snapshot). Might as well do
 	// it in advance.
-	bc.engine.VerifyHeader(bc, bc.CurrentHeader())
+	bc.engine.VerifyHeader(bc, bc.CurrentHeader()) // 현재 블록헤더의 유효성 검사. 해시, 타임스탬프, 디피컬티
 
 	// Check the current state of the block hashes and make sure that we do not have any of the bad blocks in our chain
-	for hash := range BadHashes {
-		if header := bc.GetHeaderByHash(hash); header != nil {
+	for hash := range BadHashes { // 블랙리스트에 등록된 악성 블록이 현재 체인에 있는지 확인.
+		if header := bc.GetHeaderByHash(hash); header != nil { // 악성 해시에 해당하는 헤더가 있는지 확인
 			// get the canonical block corresponding to the offending header's number
-			headerByNumber := bc.GetHeaderByNumber(header.Number.Uint64())
+			headerByNumber := bc.GetHeaderByNumber(header.Number.Uint64()) // 악성 해시에 대응하는 블록 헤더의 블록 번호를 사용해 해당 번호로 찾기
 			// make sure the headerByNumber (if present) is in our current canonical chain
-			if headerByNumber != nil && headerByNumber.Hash() == header.Hash() {
+			if headerByNumber != nil && headerByNumber.Hash() == header.Hash() { // SNAP
 				log.Error("Found bad hash, rewinding chain", "number", header.Number, "hash", header.ParentHash)
 				if err := bc.SetHead(header.Number.Uint64() - 1); err != nil {
 					return nil, err
@@ -407,7 +408,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 
 	// Start future block processor.
 	bc.wg.Add(1)
-	go bc.updateFutureBlocks()
+	go bc.updateFutureBlocks() // 고루틴으로 미래블록 업데이트. 병렬처리를 통함
 
 	// If periodic cache journal is required, spin it up.
 	if bc.cacheConfig.TrieCleanRejournal > 0 {

@@ -370,7 +370,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 		for event := range events {
 			switch event.Kind {
 			case accounts.WalletArrived: // 지갑 도착
-				if err := event.Wallet.Open(""); err != nil { // 지갑 열어
+				if err := event.Wallet.Open(""); err != nil { // TODO 지갑 열어
 					log.Warn("New wallet appeared, failed to open", "url", event.Wallet.URL(), "err", err)
 				}
 			case accounts.WalletOpened: // 지갑 이미 열림
@@ -383,7 +383,8 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 				}
 				derivationPaths = append(derivationPaths, accounts.DefaultBaseDerivationPath) // default path 붙이기
 
-				event.Wallet.SelfDerive(derivationPaths, ethClient) // derivation path 따라 키 생성
+				event.Wallet.SelfDerive(derivationPaths, ethClient) // TODO derivation path 따라 키 생성
+				//m / purpose' / coin_type' / account' / change / address_index
 
 			case accounts.WalletDropped: // 지갑 끊김
 				log.Info("Old wallet dropped", "url", event.Wallet.URL())
@@ -394,42 +395,42 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 
 	// Spawn a standalone goroutine for status synchronization monitoring,
 	// close the node when synchronization is complete if user required.
-	if ctx.Bool(utils.ExitWhenSyncedFlag.Name) {
-		go func() {
-			sub := stack.EventMux().Subscribe(downloader.DoneEvent{})
-			defer sub.Unsubscribe()
-			for {
-				event := <-sub.Chan()
-				if event == nil {
+	if ctx.Bool(utils.ExitWhenSyncedFlag.Name) { // 동기화 완료되면 노드 종료 여부 설정 확인
+		go func() { // 설정 했음
+			sub := stack.EventMux().Subscribe(downloader.DoneEvent{}) // EventMux로 DoneEvent(동기화 완료 이벤트) subscribe.
+			defer sub.Unsubscribe()                                   // surrounding function 종료 시, unsubscribe
+			for {                                                     // 무한 반복
+				event := <-sub.Chan() // subscribe한 event channel에서 이벤트 대기
+				if event == nil {     // 이벤트 없음
 					continue
 				}
-				done, ok := event.Data.(downloader.DoneEvent)
-				if !ok {
+				done, ok := event.Data.(downloader.DoneEvent) // 이벤트 있고 downloader.DoneEvent 확인
+				if !ok {                                      //// 타입 변환 실패
 					continue
 				}
-				if timestamp := time.Unix(int64(done.Latest.Time), 0); time.Since(timestamp) < 10*time.Minute {
+				if timestamp := time.Unix(int64(done.Latest.Time), 0); time.Since(timestamp) < 10*time.Minute { // TODO 왜 10분? 동기화 완료 후 10분 동안 무언가를 해야하나? 동기화 완료 시점이 10분 이내인 경우?
 					log.Info("Synchronisation completed", "latestnum", done.Latest.Number, "latesthash", done.Latest.Hash(),
-						"age", common.PrettyAge(timestamp))
-					stack.Close()
+						"age", common.PrettyAge(timestamp)) // 동기화 완료 로그 메시지
+					stack.Close() // 노드 종료
 				}
 			}
 		}()
 	}
 
 	// Start auxiliary services if enabled
-	if ctx.Bool(utils.MiningEnabledFlag.Name) || ctx.Bool(utils.DeveloperFlag.Name) {
+	if ctx.Bool(utils.MiningEnabledFlag.Name) || ctx.Bool(utils.DeveloperFlag.Name) { // 마이닝 혹은 개발자 모드 여부
 		// Mining only makes sense if a full Ethereum node is running
-		if ctx.String(utils.SyncModeFlag.Name) == "light" {
+		if ctx.String(utils.SyncModeFlag.Name) == "light" { // 마이닝이고 라이드노드 노노
 			utils.Fatalf("Light clients do not support mining")
 		}
-		ethBackend, ok := backend.(*eth.EthAPIBackend)
+		ethBackend, ok := backend.(*eth.EthAPIBackend) // backend 인스턴스가 *eth.EthAPIBackend 타입인지?
 		if !ok {
 			utils.Fatalf("Ethereum service not running")
 		}
 		// Set the gas price to the limits from the CLI and start mining
-		gasprice := flags.GlobalBig(ctx, utils.MinerGasPriceFlag.Name)
-		ethBackend.TxPool().SetGasPrice(gasprice)
-		if err := ethBackend.StartMining(); err != nil {
+		gasprice := flags.GlobalBig(ctx, utils.MinerGasPriceFlag.Name) // 가스 가격 로드
+		ethBackend.TxPool().SetGasPrice(gasprice)                      // 마이닝에 사용할 가스 가격. 트랜잭션 풀에서 가스 가격 가져옴
+		if err := ethBackend.StartMining(); err != nil {               // 마이닝 시작 에러
 			utils.Fatalf("Failed to start mining: %v", err)
 		}
 	}
@@ -437,30 +438,30 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 
 // unlockAccounts unlocks any account specifically requested.
 func unlockAccounts(ctx *cli.Context, stack *node.Node) {
-	var unlocks []string
-	inputs := strings.Split(ctx.String(utils.UnlockedAccountFlag.Name), ",")
+	var unlocks []string                                                     // 언락 계정 리스트
+	inputs := strings.Split(ctx.String(utils.UnlockedAccountFlag.Name), ",") // 컨텍스트에서 UnlockedAccountFlag 이름 가져옴.
 	for _, input := range inputs {
-		if trimmed := strings.TrimSpace(input); trimmed != "" {
-			unlocks = append(unlocks, trimmed)
+		if trimmed := strings.TrimSpace(input); trimmed != "" { // 트리밍
+			unlocks = append(unlocks, trimmed) // 언락 목록 생성
 		}
 	}
 	// Short circuit if there is no account to unlock.
-	if len(unlocks) == 0 {
+	if len(unlocks) == 0 { // 언락할 계정 없음
 		return
 	}
 	// If insecure account unlocking is not allowed if node's APIs are exposed to external.
 	// Print warning log to user and skip unlocking.
-	if !stack.Config().InsecureUnlockAllowed && stack.Config().ExtRPCEnabled() {
+	if !stack.Config().InsecureUnlockAllowed && stack.Config().ExtRPCEnabled() { // insecure unlock 허용 안됨. 외부 RPC로 활성화?
 		utils.Fatalf("Account unlock with HTTP access is forbidden!")
 	}
-	backends := stack.AccountManager().Backends(keystore.KeyStoreType)
-	if len(backends) == 0 {
+	backends := stack.AccountManager().Backends(keystore.KeyStoreType) // keyStore를 관리할 백엔드 가져옴.
+	if len(backends) == 0 {                                            // 키스토어 관리 백엔드가 없음.
 		log.Warn("Failed to unlock accounts, keystore is not available")
 		return
 	}
-	ks := backends[0].(*keystore.KeyStore)
-	passwords := utils.MakePasswordList(ctx)
-	for i, account := range unlocks {
+	ks := backends[0].(*keystore.KeyStore)   // 첫 번째 백엔드를 key store 타입으로
+	passwords := utils.MakePasswordList(ctx) // 암호 목록 생성
+	for i, account := range unlocks {        // 계정을 하나씩 언락
 		unlockAccount(ks, account, i, passwords)
 	}
 }

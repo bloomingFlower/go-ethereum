@@ -46,37 +46,37 @@ import (
 
 var (
 	dumpConfigCommand = &cli.Command{
-		Action:      dumpConfig,
-		Name:        "dumpconfig",
-		Usage:       "Export configuration values in a TOML format",
-		ArgsUsage:   "<dumpfile (optional)>",
-		Flags:       flags.Merge(nodeFlags, rpcFlags),
-		Description: `Export configuration values in TOML format (to stdout by default).`,
+		Action:      dumpConfig,                                                           // 실행 함수
+		Name:        "dumpconfig",                                                         // 명령어 이름
+		Usage:       "Export configuration values in a TOML format",                       // 명령어 설명
+		ArgsUsage:   "<dumpfile (optional)>",                                              // 인자 사용법
+		Flags:       flags.Merge(nodeFlags, rpcFlags),                                     // 명령어 플래그. nodeFlags, rpcFlags와 함꼐 사용
+		Description: `Export configuration values in TOML format (to stdout by default).`, // 명령어 설명
 	}
 
 	configFileFlag = &cli.StringFlag{
 		Name:     "config",
 		Usage:    "TOML configuration file",
-		Category: flags.EthCategory,
+		Category: flags.EthCategory, // TODO flag 카테고리
 	}
 )
 
 // These settings ensure that TOML keys use the same names as Go struct fields.
-var tomlSettings = toml.Config{
-	NormFieldName: func(rt reflect.Type, key string) string {
+var tomlSettings = toml.Config{ // toml 파일 파싱 규칙
+	NormFieldName: func(rt reflect.Type, key string) string { // 필드명을 키 이름으로 정규화
 		return key
 	},
-	FieldToKey: func(rt reflect.Type, field string) string {
+	FieldToKey: func(rt reflect.Type, field string) string { // 필드명을 키 이름으로 변환
 		return field
 	},
-	MissingField: func(rt reflect.Type, field string) error {
+	MissingField: func(rt reflect.Type, field string) error { // 필드가 누락된 경우
 		id := fmt.Sprintf("%s.%s", rt.String(), field)
-		if deprecated(id) {
+		if deprecated(id) { // deprecated 됨
 			log.Warn("Config field is deprecated and won't have an effect", "name", id)
 			return nil
 		}
 		var link string
-		if unicode.IsUpper(rune(rt.Name()[0])) && rt.PkgPath() != "main" {
+		if unicode.IsUpper(rune(rt.Name()[0])) && rt.PkgPath() != "main" { // 그냥 잘못 적음
 			link = fmt.Sprintf(", see https://godoc.org/%s#%s for available fields", rt.PkgPath(), rt.Name())
 		}
 		return fmt.Errorf("field '%s' is not defined in %s%s", field, rt.String(), link)
@@ -88,28 +88,28 @@ type ethstatsConfig struct {
 }
 
 type gethConfig struct {
-	Eth      ethconfig.Config
-	Node     node.Config
-	Ethstats ethstatsConfig
-	Metrics  metrics.Config
+	Eth      ethconfig.Config // 이더리움 프로토콜 설정
+	Node     node.Config      // 노드 설정
+	Ethstats ethstatsConfig   // 이더리움 상태 설정
+	Metrics  metrics.Config   // 노드 메트릭 설정
 }
 
-func loadConfig(file string, cfg *gethConfig) error {
+func loadConfig(file string, cfg *gethConfig) error { // TOML 설정 파일 읽어 cfg에 저장
 	f, err := os.Open(file)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() // 파일 읽기 끝나면 닫기
 
-	err = tomlSettings.NewDecoder(bufio.NewReader(f)).Decode(cfg)
+	err = tomlSettings.NewDecoder(bufio.NewReader(f)).Decode(cfg) // Reader 생성 후 읽고 디코딩하여 cfg에 저장
 	// Add file name to errors that have a line number.
-	if _, ok := err.(*toml.LineError); ok {
+	if _, ok := err.(*toml.LineError); ok { // 잘 완료?
 		err = errors.New(file + ", " + err.Error())
 	}
 	return err
 }
 
-func defaultNodeConfig() node.Config {
+func defaultNodeConfig() node.Config { // 노드 기본 설정
 	git, _ := version.VCS()
 	cfg := node.DefaultConfig
 	cfg.Name = clientIdentifier
@@ -124,28 +124,28 @@ func defaultNodeConfig() node.Config {
 // parameters and config file.
 func loadBaseConfig(ctx *cli.Context) gethConfig {
 	// Load defaults.
-	cfg := gethConfig{
+	cfg := gethConfig{ // gethConfig 구조체의 인스턴스 cfg
 		Eth:     ethconfig.Defaults,
 		Node:    defaultNodeConfig(),
 		Metrics: metrics.DefaultConfig,
 	}
 
 	// Load config file.
-	if file := ctx.String(configFileFlag.Name); file != "" {
-		if err := loadConfig(file, &cfg); err != nil {
+	if file := ctx.String(configFileFlag.Name); file != "" { // 설정 파일 지정 여부
+		if err := loadConfig(file, &cfg); err != nil { // 지정되었으며 해당 파일 로드
 			utils.Fatalf("%v", err)
 		}
 	}
 
 	// Apply flags.
-	utils.SetNodeConfig(ctx, &cfg.Node)
+	utils.SetNodeConfig(ctx, &cfg.Node) // CLI flag 를 노드 설정에 적용
 	return cfg
 }
 
 // makeConfigNode loads geth configuration and creates a blank node instance.
 func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	cfg := loadBaseConfig(ctx)
-	stack, err := node.New(&cfg.Node)
+	stack, err := node.New(&cfg.Node) // 새 노드 생성
 	if err != nil {
 		utils.Fatalf("Failed to create the protocol stack: %v", err)
 	}
@@ -165,63 +165,63 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 
 // makeFullNode loads geth configuration and creates the Ethereum backend.
 func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
-	stack, cfg := makeConfigNode(ctx)
-	if ctx.IsSet(utils.OverrideCancun.Name) {
+	stack, cfg := makeConfigNode(ctx)         // 생성된 노드 스택과 설정
+	if ctx.IsSet(utils.OverrideCancun.Name) { // Cancun(하드포크) 설정 여부
 		v := ctx.Uint64(utils.OverrideCancun.Name)
 		cfg.Eth.OverrideCancun = &v
 	}
-	backend, eth := utils.RegisterEthService(stack, &cfg.Eth)
+	backend, eth := utils.RegisterEthService(stack, &cfg.Eth) // 이더리움 서비스를 노드 스택에 등록
 
 	// Configure log filter RPC API.
-	filterSystem := utils.RegisterFilterAPI(stack, backend, &cfg.Eth)
+	filterSystem := utils.RegisterFilterAPI(stack, backend, &cfg.Eth) // 노드 스택에 로그 필터링 RPC API 등록
 
 	// Configure GraphQL if requested.
 	if ctx.IsSet(utils.GraphQLEnabledFlag.Name) {
-		utils.RegisterGraphQLService(stack, backend, filterSystem, &cfg.Node)
+		utils.RegisterGraphQLService(stack, backend, filterSystem, &cfg.Node) // 노드 스택에 그래프QL 서비스 등록
 	}
 
 	// Add the Ethereum Stats daemon if requested.
 	if cfg.Ethstats.URL != "" {
-		utils.RegisterEthStatsService(stack, backend, cfg.Ethstats.URL)
+		utils.RegisterEthStatsService(stack, backend, cfg.Ethstats.URL) // 이더리움 통계 서비스 노드 스택에 등록
 	}
 
 	// Configure full-sync tester service if requested
-	if ctx.IsSet(utils.SyncTargetFlag.Name) && cfg.Eth.SyncMode == downloader.FullSync {
-		utils.RegisterFullSyncTester(stack, eth, ctx.Path(utils.SyncTargetFlag.Name))
+	if ctx.IsSet(utils.SyncTargetFlag.Name) && cfg.Eth.SyncMode == downloader.FullSync { // 풀싱크 여부?
+		utils.RegisterFullSyncTester(stack, eth, ctx.Path(utils.SyncTargetFlag.Name)) // 풀싱크 테스터 서비스 노드 스택에 등록
 	}
 	return stack, backend
 }
 
 // dumpConfig is the dumpconfig command.
-func dumpConfig(ctx *cli.Context) error {
-	_, cfg := makeConfigNode(ctx)
+func dumpConfig(ctx *cli.Context) error { // 현재 설정 TOML dump
+	_, cfg := makeConfigNode(ctx) // 노드 스택은 제외하고 cfg만 생성
 	comment := ""
 
-	if cfg.Eth.Genesis != nil {
-		cfg.Eth.Genesis = nil
+	if cfg.Eth.Genesis != nil { // 설정에 제네시스블록 정의 여부
+		cfg.Eth.Genesis = nil // 제거
 		comment += "# Note: this config doesn't contain the genesis block.\n\n"
 	}
 
-	out, err := tomlSettings.Marshal(&cfg)
+	out, err := tomlSettings.Marshal(&cfg) // TOML 형식으로 변환
 	if err != nil {
 		return err
 	}
 
-	dump := os.Stdout
-	if ctx.NArg() > 0 {
-		dump, err = os.OpenFile(ctx.Args().Get(0), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	dump := os.Stdout   // 표준 출력
+	if ctx.NArg() > 0 { // 사용자가 출력 파일 지정 여부
+		dump, err = os.OpenFile(ctx.Args().Get(0), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644) // 지정한 경우 열 준비, 첫 번째 인자가 파일경로. 읽기/쓰기 모드, 없으면 파일 생성, 이미 있으면 비우고 쓰기
 		if err != nil {
 			return err
 		}
 		defer dump.Close()
 	}
-	dump.WriteString(comment)
-	dump.Write(out)
+	dump.WriteString(comment) // 코멘트 쓰기
+	dump.Write(out)           // TOML 쓰기
 
 	return nil
 }
 
-func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
+func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) { // 메트릭 설정 적용
 	if ctx.IsSet(utils.MetricsEnabledFlag.Name) {
 		cfg.Metrics.Enabled = ctx.Bool(utils.MetricsEnabledFlag.Name)
 	}
@@ -266,7 +266,7 @@ func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
 	}
 }
 
-func deprecated(field string) bool {
+func deprecated(field string) bool { // 안 쓰는 필드 확인
 	switch field {
 	case "ethconfig.Config.EVMInterpreter":
 		return true
@@ -277,16 +277,16 @@ func deprecated(field string) bool {
 	}
 }
 
-func setAccountManagerBackends(conf *node.Config, am *accounts.Manager, keydir string) error {
-	scryptN := keystore.StandardScryptN
+func setAccountManagerBackends(conf *node.Config, am *accounts.Manager, keydir string) error { // 계정 관리에 백엔드 설정
+	scryptN := keystore.StandardScryptN // 스크립트 암호화 설정..
 	scryptP := keystore.StandardScryptP
-	if conf.UseLightweightKDF {
+	if conf.UseLightweightKDF { // 가벼운 암호화
 		scryptN = keystore.LightScryptN
 		scryptP = keystore.LightScryptP
 	}
 
 	// Assemble the supported backends
-	if len(conf.ExternalSigner) > 0 {
+	if len(conf.ExternalSigner) > 0 { // 외부 백엔드를 개인키 관리 시스템에 추가
 		log.Info("Using external signer", "url", conf.ExternalSigner)
 		if extBackend, err := external.NewExternalBackend(conf.ExternalSigner); err == nil {
 			am.AddBackend(extBackend)
@@ -300,7 +300,7 @@ func setAccountManagerBackends(conf *node.Config, am *accounts.Manager, keydir s
 	// If/when we implement some form of lockfile for USB and keystore wallets,
 	// we can have both, but it's very confusing for the user to see the same
 	// accounts in both externally and locally, plus very racey.
-	am.AddBackend(keystore.NewKeyStore(keydir, scryptN, scryptP))
+	am.AddBackend(keystore.NewKeyStore(keydir, scryptN, scryptP)) // 여러 백엔드를 개인키 관리시스템에 추가(하드웨어지갑들..)
 	if conf.USB {
 		// Start a USB hub for Ledger hardware wallets
 		if ledgerhub, err := usbwallet.NewLedgerHub(); err != nil {
